@@ -2,7 +2,13 @@
 
 Electron + Next.js local Solana shadow research terminal. Paper mode is the default; explicitly enabled Phase 3 live mode signs and submits burner-wallet transactions.
 
-## Windows
+## Local browser mode on Windows
+
+Double-click **Launch_Cortisol_Browser.bat**. It uses Node.js >=22 (including the portable Node installed by the original setup), installs missing dependencies with Electron binary download disabled, builds the app, starts a server bound only to `127.0.0.1`, and opens your default browser. It never launches Electron or invokes PowerShell. If Node is missing, it opens the official Node.js download page.
+
+Keep the launcher window open while using the app; closing it stops monitoring. Use Ctrl+C in that window to stop the server. Closing only the browser tab does not stop the engine. Existing settings and data in this same extracted folder are preserved. Windows Smart App Control remains enabled and may still block scripts or native dependencies; browser mode is not a security bypass.
+
+## Windows desktop mode
 Double-click `First_Time_Setup.bat`. It installs a checksum-verified portable Node.js 22 LTS when Node >=22 is unavailable, runs `npm install`, creates **Cortisol.x** on your actual Windows Desktop (including redirected/OneDrive Desktops), and immediately calls `Launch_Cortisol.bat`. Later launches use the shortcut. The shortcut points to this folder: keep it in place. Setup needs Internet access to nodejs.org, npm and GitHub; failures stop with a visible error.
 
 The launcher builds the app and starts Electron with a loopback-only Next server. Closing Electron terminates the server through concurrently. No administrator installation of Node or manual PATH changes are needed. Native SQLite may require Windows build tools if a prebuilt binary is unavailable for an existing Node version.
