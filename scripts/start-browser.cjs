@@ -2,14 +2,14 @@ const { spawn } = require('node:child_process');
 const net = require('node:net');
 const http = require('node:http');
 const path = require('node:path');
-const url = 'http://127.0.0.1:3000';
+const { host, port, origin: url } = require('./local-server.cjs');
 const root = path.resolve(__dirname, '..');
 
 function ensurePortFree() {
   return new Promise((resolve, reject) => {
     const probe = net.createServer();
-    probe.once('error', () => reject(new Error('Port 3000 is already in use. Close the other Cortisol.x server window and try again.')));
-    probe.listen(3000, '127.0.0.1', () => probe.close(resolve));
+    probe.once('error', () => reject(new Error('Cortisol port 4317 is already in use. Close the other Cortisol.x instance and try again; PumpStation can stay open.')));
+    probe.listen(port, host, () => probe.close(resolve));
   });
 }
 function ready() {
@@ -21,7 +21,7 @@ function ready() {
 }
 async function main() {
   await ensurePortFree();
-  const server = spawn(process.execPath, [require.resolve('next/dist/bin/next'), 'start', '--hostname', '127.0.0.1', '--port', '3000'], { cwd: root, stdio: 'inherit' });
+  const server = spawn(process.execPath, [require.resolve('next/dist/bin/next'), 'start', '--hostname', host, '--port', String(port)], { cwd: root, stdio: 'inherit' });
   let stopped = false;
   const stop = () => { if (!stopped) { stopped = true; server.kill('SIGTERM'); } };
   process.on('SIGINT', stop);

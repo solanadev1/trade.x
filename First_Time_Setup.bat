@@ -9,11 +9,14 @@ if errorlevel 1 (
   if errorlevel 1 goto fail
   set "PATH=%LOCALAPPDATA%\Cortisol.x\node;%PATH%"
 )
+set "ELECTRON_SKIP_BINARY_DOWNLOAD="
 call npm install
+if errorlevel 1 goto fail
+call npm run build
 if errorlevel 1 goto fail
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0windows\Create-Shortcut.ps1"
 if errorlevel 1 goto fail
-call "%~dp0Launch_Cortisol.bat"
+start "" wscript.exe //nologo "%~dp0Launch_Silent.vbs"
 exit /b %errorlevel%
 :fail
 echo Setup failed. Review the error above and run First_Time_Setup.bat again.

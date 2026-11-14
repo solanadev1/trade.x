@@ -16,7 +16,7 @@ function csvRows(text: string): string[][] {
   row.push(cell.trim()); if (row.some(Boolean)) rows.push(row); return rows;
 }
 export async function ingestJeeterCsv(text: string) {
-  const rows = csvRows(text.replace(/^\uFEFF/, '')); const header = rows.shift();
+  const rows = csvRows(text.replace(/^\uFEFF/, '')); const header = rows.shift()?.map(key=>key==='emotion_index'?'jeeter_score':key);
   const required = ['wallet','trades_sampled','median_hold_sec','panic_exit_count','rebound_after_exit_count','jeeter_score','funding_parent','last_seen'];
   if (!header || required.some(k => !header.includes(k))) throw new Error(`CSV headers required: ${required.join(',')}`);
   if (rows.length > 10000) throw new Error('Maximum 10,000 rows per import');
