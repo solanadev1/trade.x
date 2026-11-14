@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
     paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'src/**'
+      - 'public/**'
+      - 'next.config.mjs'
       - 'electron/**'
       - 'assets/**'
       - 'electron-builder.yml'
