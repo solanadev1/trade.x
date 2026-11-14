@@ -1,0 +1,38 @@
+appId: com.cortisolx.desktop
+productName: Cortisol.x
+asar: true
+npmRebuild: false
+directories:
+  output: release
+files:
+  - electron/**/*
+  - scripts/local-server.cjs
+  - assets/app.ico
+  - assets/app.png
+  - package.json
+  - '!node_modules/**/*'
+extraResources:
+  - from: .next/standalone
+    to: server
+  - from: .next/static
+    to: server/.next/static
+  - from: public
+    to: server/public
+  - from: work/packaging/node.exe
+    to: runtime/node.exe
+win:
+  icon: assets/app.ico
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: Cortisol.x-Setup-${version}.${ext}
+nsis:
+  oneClick: true
+  perMachine: false
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Cortisol.x
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  installerIcon: assets/app.ico
+  uninstallerIcon: assets/app.ico

@@ -11,7 +11,8 @@
     "desktop": "electron .",
     "typecheck": "tsc --noEmit",
     "test": "tsx --import ./tests/setup.cjs --test tests/*.test.ts",
-    "browser": "node scripts/start-browser.cjs"
+    "browser": "node scripts/start-browser.cjs",
+    "dist:win": "npm run build && node scripts/prepare-package.cjs && electron-builder --win nsis --x64 --publish never"
   },
   "dependencies": {
     "@pump-fun/pump-sdk": "^4.3.1",
@@ -37,8 +38,11 @@
     "@types/ws": "^8.18.1",
     "concurrently": "^9.2.1",
     "electron": "^39.0.0",
+    "electron-builder": "^26.18.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "wait-on": "^9.0.0"
-  }
+  },
+  "description": "Cortisol.x local Solana research and execution terminal",
+  "author": "Cortisol.x"
 }
