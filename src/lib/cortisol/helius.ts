@@ -34,9 +34,9 @@ export async function enhancedHistory(address: string, before?: string): Promise
   url.searchParams.set('api-key', key!); url.searchParams.set('limit', '100'); if (before) url.searchParams.set('before', before);
   return heliusFetch(url.toString());
 }
-export type EnhancedTx = { signature: string; timestamp: number; transactionError: unknown; source: string; feePayer: string; nativeTransfers: { fromUserAccount: string; toUserAccount: string; amount: number }[]; events?: { swap?: { nativeInput?: { account: string; amount: string }; nativeOutput?: { account: string; amount: string }; tokenInputs: TokenFlow[]; tokenOutputs: TokenFlow[] } } };
+export type EnhancedTx = { signature: string; timestamp: number; transactionError: unknown; source: string; tokenTransfers?:{mint:string;fromUserAccount:string;toUserAccount:string;tokenAmount:number}[]; feePayer: string; nativeTransfers: { fromUserAccount: string; toUserAccount: string; amount: number }[]; events?: { swap?: { nativeInput?: { account: string; amount: string }; nativeOutput?: { account: string; amount: string }; tokenInputs: TokenFlow[]; tokenOutputs: TokenFlow[] } } };
 type TokenFlow = { mint: string; userAccount: string; rawTokenAmount: { tokenAmount: string; decimals: number } };
-export type Trade = { signature: string; mint: string; wallet: string; buy: boolean; sol: number; tokens: number; price: number; timestamp: number };
+export type Trade = { slot?:number; virtualSolRaw?:string; virtualTokenRaw?:string; realSolRaw?:string; signature: string; mint: string; wallet: string; buy: boolean; sol: number; tokens: number; price: number; timestamp: number };
 export function enhancedTrades(tx: EnhancedTx, mint: string): Trade[] {
   if (tx.transactionError || tx.source !== 'PUMP_FUN') return [];
   const swap = tx.events?.swap; if (!swap) return [];

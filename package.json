@@ -10,9 +10,10 @@
     "app:start": "concurrently --kill-others \"npm run dev\" \"wait-on http-get://127.0.0.1:3000 && electron .\"",
     "desktop": "concurrently --kill-others \"npm start\" \"wait-on http-get://127.0.0.1:3000 && electron .\"",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --import ./tests/setup.cjs --test tests/*.test.ts"
   },
   "dependencies": {
+    "@pump-fun/pump-sdk": "^4.3.1",
     "@pump-fun/pump-swap-sdk": "^2.2.0",
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",

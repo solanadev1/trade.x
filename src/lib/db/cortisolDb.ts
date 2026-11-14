@@ -3,7 +3,7 @@ import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
 
-const dir = join(process.cwd(), 'data');
+const dir = process.env.CORTISOL_DATA_DIR || join(process.cwd(), 'data');
 mkdirSync(dir, { recursive: true, mode: 0o700 });
 const globals = globalThis as typeof globalThis & { cortisolDb?: Database.Database };
 export const db = globals.cortisolDb ??= new Database(join(dir, 'cortisol.sqlite'));
@@ -41,5 +41,5 @@ export function setConfig(key: string, value: string) {
   db.prepare('INSERT OR REPLACE INTO app_config(key,value) VALUES (?,?)').run(key, `${iv.toString('hex')}.${cipher.getAuthTag().toString('hex')}.${body.toString('hex')}`);
 }
 export function publicConfig() {
-  return { helius_configured: !!getConfig('helius_rpc_url'), openrouter_configured: !!getConfig('openrouter_api_key'), burner_configured: !!getConfig('burner_private_key'), passcode_configured: !!getConfig('dashboard_passcode'), dry_run_mode: true };
+  return { helius_configured: !!getConfig('helius_rpc_url'), openrouter_configured: !!getConfig('openrouter_api_key'), burner_configured: !!getConfig('burner_private_key'), passcode_configured: !!getConfig('dashboard_passcode'), dry_run_mode: getConfig('dry_run_mode')!=='false' };
 }
