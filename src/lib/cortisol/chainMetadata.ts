@@ -1,9 +1,9 @@
 import { createHash } from 'crypto';
 import { PublicKey } from '@solana/web3.js';
-import { rpc } from './helius';
+import { rpc, type RpcLane } from './helius';
 import { PUMP_PROGRAM, curveAddress } from './pumpDecoder';
 type Account={owner:string;data:[string,string]};
-export async function account(address:string):Promise<Account>{const r=await rpc<{value:Account|null}>('getAccountInfo',[address,{encoding:'base64',commitment:'confirmed'}]);if(!r.value)throw new Error('Account unavailable');return r.value;}
+export async function account(address:string,lane:RpcLane='bulk'):Promise<Account>{const r=await rpc<{value:Account|null}>('getAccountInfo',[address,{encoding:'base64',commitment:'confirmed'}],lane);if(!r.value)throw new Error('Account unavailable');return r.value;}
 async function readMintMetadata(mint:string){
  const a=await account(mint),data=Buffer.from(a.data[0],'base64');
  if(!['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA','TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'].includes(a.owner)||data.length<82)throw new Error('Invalid mint account');

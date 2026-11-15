@@ -1,4 +1,4 @@
-import {recentBlockhash,startWarmer,prepareAta,cachedAta} from './executionWarm';
+import {recentBlockhash,startWarmer,prepareAta,cachedAta,tipAccount,JITO_BUNDLE_URL} from './executionWarm';
 import {convictionTip} from './kelly';
 import {jupiterInstructions} from './jupiterFallback';
 import {Connection,Keypair,PublicKey,ComputeBudgetProgram,SystemProgram,TransactionMessage,VersionedTransaction,TransactionInstruction} from '@solana/web3.js';
@@ -8,7 +8,7 @@ import {OnlinePumpAmmSdk,PUMP_AMM_SDK,canonicalPumpPoolPda,buyQuoteInput,sellBas
 import BN from 'bn.js';import bs58 from 'bs58';
 import {getConfig} from '../db/cortisolDb';import {rpcUrl,limiter} from './helius';import {db,metric} from './phaseDb';
 export const EXECUTION_COST=1_500_000n;
-export function connection(){return new Connection(rpcUrl().toString(),{commitment:'confirmed',disableRetryOnRateLimit:true,fetch:async(input,init)=>{await limiter.acquire();return fetch(input,{...init,signal:AbortSignal.timeout(15000)});}});}
+export function connection(){return new Connection(rpcUrl().toString(),{commitment:'confirmed',disableRetryOnRateLimit:true,fetch:async(input,init)=>{await limiter.acquire('hot');return fetch(input,{...init,signal:AbortSignal.timeout(4000)});}});}
 export function burner(){const text=getConfig('burner_private_key');if(!text)throw new Error('Burner key required');const bytes=text.startsWith('[')?Uint8Array.from(JSON.parse(text)):bs58.decode(text);return Keypair.fromSecretKey(bytes);}
 export async function buildSwap(mint:string,side:'BUY'|'SELL',amount:bigint){
  startWarmer();await prepareAta(mint);const conn=connection(),user=burner().publicKey,key=new PublicKey(mint),cached=cachedAta(mint,user.toBase58()),mintInfo=cached?{owner:cached.program}:await conn.getAccountInfo(key);if(!mintInfo||![TOKEN_PROGRAM_ID.toBase58(),TOKEN_2022_PROGRAM_ID.toBase58()].includes(mintInfo.owner.toBase58()))throw new Error('Unsupported mint');
@@ -21,14 +21,16 @@ export async function buildSwap(mint:string,side:'BUY'|'SELL',amount:bigint){
  if(side==='BUY'){const quote=buyQuoteInput({...common,quote:new BN(amount.toString())});return PUMP_AMM_SDK.buyInstructions(s,quote.base.muln(9750).divn(10000),new BN(amount.toString()));}
  const quote=sellBaseInput({...common,base:new BN(amount.toString())});return PUMP_AMM_SDK.sellInstructions(s,new BN(amount.toString()),quote.uiQuote.muln(9750).divn(10000));}catch{return jupiterInstructions(mint,side,amount);}
 }
-async function jito(method:string,params:unknown[]){const response=await fetch('https://mainnet.block-engine.jito.wtf/api/v1/bundles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params}),signal:AbortSignal.timeout(5000)});if(!response.ok)throw new Error(`Jito HTTP ${response.status}`);const result=await response.json();if(result.error)throw new Error('Jito rejected request');return result.result;}
+async function jito(method:string,params:unknown[]){const response=await fetch(JITO_BUNDLE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params}),signal:AbortSignal.timeout(5000)});if(!response.ok)throw new Error(`Jito HTTP ${response.status}`);const result=await response.json();if(result.error)throw new Error('Jito rejected request');return result.result;}
 export type EmotionSignedExit={emotionRaw:Buffer;emotionSignature:string;emotionBlockHeight:number;emotionPreparedAt:number;emotionOwner:string};
-export async function emotionPrepareSigned(emotionInstructions:TransactionInstruction[],emotionTip:bigint):Promise<EmotionSignedExit>{
- const emotionWallet=burner(),emotionTips=await jito('getTipAccounts',[]);if(!Array.isArray(emotionTips)||!emotionTips.length)throw new Error('Emotion tip accounts unavailable');
+// emotionSimulate adds one RPC round trip. Keep it for transactions signed ahead of time (exit ladder);
+// skip it on immediate submissions, where a failing bundle simply does not land and the RPC fallback preflights.
+export async function emotionPrepareSigned(emotionInstructions:TransactionInstruction[],emotionTip:bigint,emotionSimulate=true):Promise<EmotionSignedExit>{
+ const emotionWallet=burner(),emotionTipAccount=await tipAccount();
  const emotionBlock=await recentBlockhash();
- const emotionMessage=new TransactionMessage({payerKey:emotionWallet.publicKey,recentBlockhash:emotionBlock.blockhash,instructions:[ComputeBudgetProgram.setComputeUnitLimit({units:300000}),ComputeBudgetProgram.setComputeUnitPrice({microLamports:100000}),...emotionInstructions,SystemProgram.transfer({fromPubkey:emotionWallet.publicKey,toPubkey:new PublicKey(emotionTips[0]),lamports:emotionTip})]}).compileToV0Message();
+ const emotionMessage=new TransactionMessage({payerKey:emotionWallet.publicKey,recentBlockhash:emotionBlock.blockhash,instructions:[ComputeBudgetProgram.setComputeUnitLimit({units:300000}),ComputeBudgetProgram.setComputeUnitPrice({microLamports:100000}),...emotionInstructions,SystemProgram.transfer({fromPubkey:emotionWallet.publicKey,toPubkey:emotionTipAccount,lamports:emotionTip})]}).compileToV0Message();
  const emotionTx=new VersionedTransaction(emotionMessage);emotionTx.sign([emotionWallet]);
- const emotionSimulation=await connection().simulateTransaction(emotionTx,{sigVerify:false,commitment:'confirmed'});if(emotionSimulation.value.err)throw new Error('Emotion transaction simulation rejected');
+ if(emotionSimulate){const emotionSimulation=await connection().simulateTransaction(emotionTx,{sigVerify:false,commitment:'confirmed'});if(emotionSimulation.value.err)throw new Error('Emotion transaction simulation rejected');}
  return {emotionRaw:Buffer.from(emotionTx.serialize()),emotionSignature:bs58.encode(emotionTx.signatures[0]),emotionBlockHeight:emotionBlock.lastValidBlockHeight,emotionPreparedAt:emotionBlock.at,emotionOwner:emotionWallet.publicKey.toBase58()};
 }
 export async function emotionSubmitSigned(emotionOrderId:string,emotionSigned:EmotionSignedExit){
@@ -43,5 +45,5 @@ export async function emotionSubmitSigned(emotionOrderId:string,emotionSigned:Em
 }
 export async function submitOrder(emotionOrderId:string,emotionInstructions:TransactionInstruction[],emotionTip?:bigint){
  const emotionOrder=db.prepare('SELECT active_positions.cortisol_score FROM execution_orders JOIN active_positions USING(position_id) WHERE order_id=?').get(emotionOrderId) as {cortisol_score:number};
- return emotionSubmitSigned(emotionOrderId,await emotionPrepareSigned(emotionInstructions,emotionTip??convictionTip(emotionOrder.cortisol_score)));
+ return emotionSubmitSigned(emotionOrderId,await emotionPrepareSigned(emotionInstructions,emotionTip??convictionTip(emotionOrder.cortisol_score),false));
 }

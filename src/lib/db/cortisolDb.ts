@@ -8,6 +8,8 @@ mkdirSync(dir, { recursive: true, mode: 0o700 });
 const globals = globalThis as typeof globalThis & { cortisolDb?: Database.Database };
 export const db = globals.cortisolDb ??= new Database(join(dir, 'cortisol.sqlite'));
 db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+db.pragma('wal_autocheckpoint = 1000');
 db.pragma('busy_timeout = 5000');
 db.exec(`
 CREATE TABLE IF NOT EXISTS app_config (key TEXT PRIMARY KEY, value TEXT NOT NULL);

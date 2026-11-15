@@ -1,10 +1,11 @@
 import { account } from './chainMetadata';
 import { historicalTrades, rankRunners } from './history';
-import { PUMP_PROGRAM } from './pumpDecoder';
+import { recorder } from './shadowRecorder';
 import { curveAddress, decodePumpCurve } from './pumpDecoder';
 import { PublicKey } from '@solana/web3.js';
 import { db } from '../db/cortisolDb';
-import { allEnhancedHistory, enhancedHistory, enhancedTrades, type Trade } from './helius';
+import { type Trade } from './helius';
+import { fundingParent } from './fundingCache';
 const save = db.prepare(`INSERT INTO jeeter_profiles VALUES (@wallet,@trades_sampled,@median_hold_sec,@panic_exit_count,@rebound_after_exit_count,@jeeter_score,@funding_parent,@last_seen)
 ON CONFLICT(wallet) DO UPDATE SET trades_sampled=excluded.trades_sampled, median_hold_sec=excluded.median_hold_sec, panic_exit_count=excluded.panic_exit_count, rebound_after_exit_count=excluded.rebound_after_exit_count, jeeter_score=excluded.jeeter_score, funding_parent=excluded.funding_parent, last_seen=excluded.last_seen`);
 const validWallet = (s: string) => new PublicKey(s).toBase58();
@@ -58,23 +59,27 @@ export async function harvestMintJeeters(address: string) {
     candidates.set(t.wallet,p); const remaining=h.tokens-t.tokens; if(remaining<0.000001) holdings.delete(t.wallet); else holdings.set(t.wallet,{...h,tokens:remaining,cost:h.cost-cost});
   }
   const eligible=[...candidates].filter(([,p])=>p.rebound>0).sort((a,b)=>b[1].rebound-a[1].rebound);
-  const funded: { wallet:string; parent:string; p:typeof eligible[number][1] }[]=[];
+  // Established wallets (thousands of transactions) carry no funding parent; they cannot be a fresh sybil.
+  const funded: { wallet:string; parent:string|null; p:typeof eligible[number][1] }[]=[];
   for(const [wallet,p] of eligible) {
-    const oldest = await allEnhancedHistory(wallet);
-    const incoming=oldest.sort((a,b)=>a.timestamp-b.timestamp).flatMap(tx=>(tx.transactionError?[]:tx.nativeTransfers??[]).filter(n=>n.toUserAccount===wallet && n.fromUserAccount!==wallet));
-    if(incoming.length) funded.push({wallet,parent:incoming[0].fromUserAccount,p});
+    const funding = await fundingParent(wallet);
+    if(funding.parent || funding.established) funded.push({wallet,parent:funding.parent,p});
   }
   const curve=await account(curveAddress(mint).toBase58());const creator=decodePumpCurve(Buffer.from(curve.data[0],'base64')).creator.toBase58();
-  const safe=funded.filter(e=>funded.filter(f=>f.parent===e.parent).length===1 && e.parent!==creator && e.wallet!==creator && !db.prepare('SELECT wallet FROM jeeter_profiles WHERE funding_parent=? AND wallet<>?').get(e.parent,e.wallet));
+  const safe=funded.filter(e=>e.wallet!==creator && (e.parent===null || (funded.filter(f=>f.parent===e.parent).length===1 && e.parent!==creator && !db.prepare('SELECT wallet FROM jeeter_profiles WHERE funding_parent=? AND wallet<>?').get(e.parent,e.wallet))));
   db.transaction(()=>{for(const {wallet,parent,p} of safe){const h=p.holds.sort((a,b)=>a-b); const mid=Math.floor(h.length/2); const median=h.length%2?h[mid]:(h[mid-1]+h[mid])/2;
     save.run({wallet,trades_sampled:p.samples,median_hold_sec:median,panic_exit_count:p.panic,rebound_after_exit_count:p.rebound,jeeter_score:Math.min(100,100*(p.rebound/p.samples)*Math.min(1,p.samples/5)),funding_parent:parent,last_seen:Math.floor(Date.now()/1000)});}})();
-  return { indexed:safe.length, trades:trades.length, candidates:eligible.length, note:'Full available confirmed transaction logs paginated through Helius. Missing funding history is excluded; shared funders are a heuristic, not proof of independence.' };
+  return { indexed:safe.length, trades:trades.length, candidates:eligible.length, note:'Curve transaction logs paginated through Helius. Young wallets with no resolvable first funder are excluded; shared funders are a heuristic, not proof of independence.' };
 }
 
 export async function autoSeedRecentRunners(){
  const until=Date.now(),since=until-15*60*1000;
- const runners=rankRunners(await historicalTrades(PUMP_PROGRAM.toBase58(),since,until));
+ // Ranked from the live tape already in memory. Crawling the whole Pump program for 15 minutes costs one
+ // credit per transaction and exceeds a day's budget on its own.
+ const live=[...recorder.trades.values()].flat().filter(t=>t.timestamp>=since&&t.timestamp<=until);
+ if(!live.length)throw new Error('No live tape yet. Start the engine, let it record for a few minutes, then seed again.');
+ const runners=rankRunners(live);
  let indexed=0;const failures:{mint:string;error:string}[]=[];
  for(const runner of runners){try{indexed+=(await harvestMintJeeters(runner.mint)).indexed;}catch(e){failures.push({mint:runner.mint,error:e instanceof Error?e.message:String(e)});}}
- return {indexed,runners,failures,note:`Ranked ${runners.length} recent Pump bonding-curve runners by confirmed 15-minute SOL volume through Helius. ${failures.length} harvests failed.`};
+ return {indexed,runners,failures,note:`Ranked ${runners.length} recent Pump bonding-curve runners by SOL volume on the recorded live tape (last 15 minutes). ${failures.length} harvests failed.`};
 }
