@@ -15,4 +15,32 @@ export async function orderflowEvidence(trades:Trade[],bundledWallets:string[]){
  const latest=recent.filter(t=>t.timestamp>=now-3000),net=latest.reduce((s,t)=>s+(t.buy?t.sol:-t.sol),0);
  return {measuredAt:now,millisecondClusteredPct:clusteredReceiptPct(recent.filter(t=>t.buy)),absorptionPct:panic?absorbed/panic*100:0,freshUnbundled:eligible.size>0&&!unknown,sharedParentPct:buyers.length?Math.max(0,...parents.values())/buyers.length*100:100,inflowScore:Math.max(0,Math.min(100,net/Math.max(.01,panic)*100))};
 }
-export function publishSignal(mint:string,curvePct:number,emotion:number,evidence:Awaited<ReturnType<typeof orderflowEvidence>>,forensicPass:boolean,top10Pct:number,narrative:number,bankroll:number){const score=Date.now()-evidence.measuredAt>10000?0:convictionScore({emotion,...evidence,curvePct,forensicPass,top10Pct,narrative});const kelly=sizing(bankroll,score);db.prepare('INSERT OR REPLACE INTO conviction_signals VALUES(?,?,?,?,?,?,?,?,?,?)').run(mint,curvePct,emotion,evidence.absorptionPct,score,kelly.tier,kelly.sol,kelly.fStar,Date.now(),narrative);return {score,...kelly};}
+export function publishSignal(mint:string,curvePct:number,emotion:number,evidence:Awaited<ReturnType<typeof orderflowEvidence>>,forensicPass:boolean,top10Pct:number,narrative:number,bankroll:number,emotionOverride?:number){const score=!forensicPass||Date.now()-evidence.measuredAt>10000?0:emotionOverride!==undefined?Math.max(0,Math.min(100,emotionOverride)):convictionScore({emotion,...evidence,curvePct,forensicPass,top10Pct,narrative});const kelly=sizing(bankroll,score);db.prepare('INSERT OR REPLACE INTO conviction_signals VALUES(?,?,?,?,?,?,?,?,?,?)').run(mint,curvePct,emotion,evidence.absorptionPct,score,kelly.tier,kelly.sol,kelly.fStar,Date.now(),narrative);return {score,...kelly};}
+
+export type EmotionPassOne = {
+ emotionPain:{emotionExhaustionScore:number};
+ emotionTape:{emotionAbsorptions:{emotionDeltaMs:number}[];emotionApexBuys:{emotionCopyHerdScore:number}[]};
+ emotionClusters:{emotionStealthWhaleAccumulation:boolean;emotionWashTrading:boolean};
+ emotionFlow:{emotionDumpSol:number;emotionAbsorbSol:number;emotionDumpToAbsorption:number|null};
+};
+export function synthesizeEmotionConviction(emotionBase:number,emotionEvidence:EmotionPassOne,emotionSafe:boolean,emotionAdjustment=0){
+ const emotionScalp=emotionEvidence.emotionTape.emotionApexBuys.some(emotionBuy=>emotionBuy.emotionCopyHerdScore>=60);
+ const emotionFloor=emotionEvidence.emotionTape.emotionAbsorptions.some(emotionAbsorption=>emotionAbsorption.emotionDeltaMs>0&&emotionAbsorption.emotionDeltaMs<400);
+ const emotionMaximum=emotionEvidence.emotionPain.emotionExhaustionScore>=90&&(emotionFloor||emotionEvidence.emotionClusters.emotionStealthWhaleAccumulation);
+ if(!emotionSafe||emotionEvidence.emotionClusters.emotionWashTrading)return {emotionScore:0,emotionScalp:false,emotionMaximum:false};
+ return {emotionScore:emotionMaximum?100:Math.min(100,Math.max(emotionScalp?95:0,emotionBase+emotionAdjustment)),emotionScalp,emotionMaximum};
+}
+export function emotionBuySizeDecay(emotionTrades:Trade[],emotionProfiles:import('../db/cortisolDb').EmotionProfile[],emotionSolUsd:number|null,emotionNow=Date.now()){
+ const emotionCurrent=emotionTrades.filter(emotionTrade=>emotionTrade.buy&&emotionTrade.timestamp>emotionNow-10000&&emotionTrade.timestamp<=emotionNow);
+ const emotionPrior=emotionTrades.filter(emotionTrade=>emotionTrade.buy&&emotionTrade.timestamp>emotionNow-20000&&emotionTrade.timestamp<=emotionNow-10000);
+ const emotionMedian=(emotionValues:number[])=>{const emotionSorted=[...emotionValues].sort((emotionA,emotionB)=>emotionA-emotionB);return emotionSorted.length?(emotionSorted[Math.floor((emotionSorted.length-1)/2)]+emotionSorted[Math.floor(emotionSorted.length/2)])/2:null;};
+ const emotionMedianSol=emotionMedian(emotionCurrent.map(emotionTrade=>emotionTrade.sol)),emotionPriorMedian=emotionMedian(emotionPrior.map(emotionTrade=>emotionTrade.sol));
+ const emotionGamblers=new Set(emotionProfiles.filter(emotionProfile=>emotionProfile.emotionClass==='Emotional Retail Gamblers').map(emotionProfile=>emotionProfile.emotionWallet));
+ const emotionShare=(emotionWindow:Trade[])=>{const emotionWallets=new Set(emotionWindow.map(emotionTrade=>emotionTrade.wallet));return emotionWallets.size?[...emotionWallets].filter(emotionWallet=>emotionGamblers.has(emotionWallet)).length/emotionWallets.size:0;};
+ const emotionSorted=[...emotionTrades].filter(emotionTrade=>emotionTrade.timestamp>=emotionNow-20000&&emotionTrade.timestamp<=emotionNow).sort((emotionA,emotionB)=>emotionA.timestamp-emotionB.timestamp);
+ const emotionUp=emotionSorted.length>=2&&emotionSorted.at(-1)!.price>emotionSorted[0].price;
+ const emotionMedianUsd=emotionSolUsd!==null&&Number.isFinite(emotionSolUsd)&&emotionSolUsd>0&&emotionMedianSol!==null?emotionMedianSol*emotionSolUsd:null;
+ const emotionDecay=emotionPriorMedian&&emotionMedianSol!==null?Math.max(0,1-emotionMedianSol/emotionPriorMedian):0;
+ return {emotionBuySizeDecay:emotionUp&&emotionCurrent.length>=10&&emotionCurrent.length>=emotionPrior.length*.8&&emotionDecay>=.25&&emotionMedianUsd!==null&&emotionMedianUsd>=50&&emotionMedianUsd<=100&&emotionShare(emotionCurrent)>=.5&&emotionShare(emotionCurrent)>emotionShare(emotionPrior),emotionMedianUsd,emotionMedianSol,emotionDecay,emotionBuysPerSecond:emotionCurrent.length/10,emotionGamblerShare:emotionShare(emotionCurrent),emotionPriceRising:emotionUp};
+}
+export function emotionSecondWave(emotionPeak:number,emotionPrice:number,emotionPreviousHolders:number|null,emotionHolders:number,emotionApexAbsorbSol:number,emotionConsumed:boolean){const emotionDrawdown=emotionPeak>0?(1-emotionPrice/emotionPeak)*100:0;return {emotionDrawdown,emotionConsume:!emotionConsumed&&emotionDrawdown>=40,emotionTrigger:!emotionConsumed&&emotionDrawdown>=40&&emotionDrawdown<=55&&emotionPreviousHolders!==null&&emotionHolders>emotionPreviousHolders&&emotionApexAbsorbSol>0};}
