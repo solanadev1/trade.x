@@ -34,3 +34,16 @@ export function clusteredReceiptPct(buys:{wallet:string;observedAt?:number}[]){
  for(const t of buys){const group=buckets.get(t.observedAt!)??new Set<string>();group.add(t.wallet);buckets.set(t.observedAt!,group);}
  return Math.max(...[...buckets.values()].map(group=>group.size>1?group.size:0))/wallets.size*100;
 }
+
+export function emotionEvAllocation(emotionBankroll:number,emotionScore:number,emotionHistory:KellyHistory,emotionSharkRatio:number,emotionZEdge:number,emotionMultiplier=.25){
+ const emotionValid=[emotionBankroll,emotionScore,emotionSharkRatio,emotionZEdge].every(Number.isFinite)&&emotionSharkRatio>=0;
+ const emotionEdge=emotionValid?Math.max(-5,Math.min(5,Math.log1p(emotionSharkRatio)*2+emotionZEdge)):0;
+ const emotionAdjusted=emotionValid&&emotionScore>=55?Math.max(55,Math.min(100,emotionScore+emotionEdge)):0;
+ const emotionAllocation=kellySize(emotionBankroll,emotionAdjusted,emotionHistory,emotionMultiplier);
+ const emotionEv=emotionAllocation.pConv*emotionAllocation.payoff-(1-emotionAllocation.pConv);
+ // Emotion bids are capped by bankroll and estimated edge; auction inclusion cannot be guaranteed.
+ const emotionCeiling=Math.max(0,Math.min(.02,emotionBankroll*.001,emotionAllocation.sol*Math.max(0,emotionEv)*.05));
+ const emotionDesired=emotionScore>=90?Number(convictionTip(emotionAdjusted))/1e9*(1+Math.max(0,emotionEdge)):Number(convictionTip(emotionScore))/1e9;
+ const emotionTip=BigInt(Math.floor(Math.min(emotionCeiling,emotionDesired)*1e9));
+ return {...emotionAllocation,emotionEv,emotionAdjusted,emotionTip:emotionAllocation.sol>0&&emotionTip>=1000n?emotionTip:0n,sol:emotionTip>=1000n?emotionAllocation.sol:0};
+}
