@@ -22,14 +22,26 @@ export async function buildSwap(mint:string,side:'BUY'|'SELL',amount:bigint){
  const quote=sellBaseInput({...common,base:new BN(amount.toString())});return PUMP_AMM_SDK.sellInstructions(s,new BN(amount.toString()),quote.uiQuote.muln(9750).divn(10000));}catch{return jupiterInstructions(mint,side,amount);}
 }
 async function jito(method:string,params:unknown[]){const response=await fetch('https://mainnet.block-engine.jito.wtf/api/v1/bundles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params}),signal:AbortSignal.timeout(5000)});if(!response.ok)throw new Error(`Jito HTTP ${response.status}`);const result=await response.json();if(result.error)throw new Error('Jito rejected request');return result.result;}
-export async function submitOrder(orderId:string,ixs:TransactionInstruction[],emotionTip?:bigint){
- const order=db.prepare('SELECT execution_orders.side,active_positions.cortisol_score FROM execution_orders JOIN active_positions USING(position_id) WHERE order_id=?').get(orderId) as {side:string;cortisol_score:number};if(order.side==='BUY'&&metric('halted'))throw new Error('Emergency halt');
- const conn=connection(),wallet=burner(),tips=await jito('getTipAccounts',[]);if(!Array.isArray(tips)||!tips.length)throw new Error('No Jito tip accounts');const block=await recentBlockhash();
- const message=new TransactionMessage({payerKey:wallet.publicKey,recentBlockhash:block.blockhash,instructions:[ComputeBudgetProgram.setComputeUnitLimit({units:300000}),ComputeBudgetProgram.setComputeUnitPrice({microLamports:100000}),...ixs,SystemProgram.transfer({fromPubkey:wallet.publicKey,toPubkey:new PublicKey(tips[0]),lamports:emotionTip??convictionTip(order.cortisol_score)})]}).compileToV0Message();const tx=new VersionedTransaction(message);tx.sign([wallet]);
- const simulation=await conn.simulateTransaction(tx,{sigVerify:false,commitment:'confirmed'});if(simulation.value.err)throw new Error(`Simulation rejected: ${JSON.stringify(simulation.value.err)}`);
- const signature=bs58.encode(tx.signatures[0]),raw=Buffer.from(tx.serialize()).toString('base64');db.prepare("UPDATE execution_orders SET signature=?,raw_transaction=?,block_height=?,status='SUBMITTED' WHERE order_id=?").run(signature,raw,block.lastValidBlockHeight,orderId);
- if(order.side==='BUY'&&metric('halted'))throw new Error('Emergency halt before broadcast');
- try{await jito('sendBundle',[[raw],{encoding:'base64'}]);}catch{await conn.sendRawTransaction(tx.serialize(),{skipPreflight:false,maxRetries:0});}
- // Confirmation is reconciled independently from submission, including after restart.
- return signature;
+export type EmotionSignedExit={emotionRaw:Buffer;emotionSignature:string;emotionBlockHeight:number;emotionPreparedAt:number;emotionOwner:string};
+export async function emotionPrepareSigned(emotionInstructions:TransactionInstruction[],emotionTip:bigint):Promise<EmotionSignedExit>{
+ const emotionWallet=burner(),emotionTips=await jito('getTipAccounts',[]);if(!Array.isArray(emotionTips)||!emotionTips.length)throw new Error('Emotion tip accounts unavailable');
+ const emotionBlock=await recentBlockhash();
+ const emotionMessage=new TransactionMessage({payerKey:emotionWallet.publicKey,recentBlockhash:emotionBlock.blockhash,instructions:[ComputeBudgetProgram.setComputeUnitLimit({units:300000}),ComputeBudgetProgram.setComputeUnitPrice({microLamports:100000}),...emotionInstructions,SystemProgram.transfer({fromPubkey:emotionWallet.publicKey,toPubkey:new PublicKey(emotionTips[0]),lamports:emotionTip})]}).compileToV0Message();
+ const emotionTx=new VersionedTransaction(emotionMessage);emotionTx.sign([emotionWallet]);
+ const emotionSimulation=await connection().simulateTransaction(emotionTx,{sigVerify:false,commitment:'confirmed'});if(emotionSimulation.value.err)throw new Error('Emotion transaction simulation rejected');
+ return {emotionRaw:Buffer.from(emotionTx.serialize()),emotionSignature:bs58.encode(emotionTx.signatures[0]),emotionBlockHeight:emotionBlock.lastValidBlockHeight,emotionPreparedAt:emotionBlock.at,emotionOwner:emotionWallet.publicKey.toBase58()};
+}
+export async function emotionSubmitSigned(emotionOrderId:string,emotionSigned:EmotionSignedExit){
+ if(Date.now()-emotionSigned.emotionPreparedAt>20000||emotionSigned.emotionOwner!==burner().publicKey.toBase58())throw new Error('Emotion signed transaction stale or owner changed');
+ const emotionOrder=db.prepare('SELECT side,status FROM execution_orders WHERE order_id=?').get(emotionOrderId) as {side:string;status:string}|undefined;
+ if(!emotionOrder||emotionOrder.status!=='PREPARING'||emotionOrder.side==='BUY'&&metric('halted'))throw new Error('Emotion signing gate rejected');
+ const emotionRaw=emotionSigned.emotionRaw.toString('base64');
+ db.prepare("UPDATE execution_orders SET signature=?,raw_transaction=?,block_height=?,status='SUBMITTED' WHERE order_id=? AND status='PREPARING'").run(emotionSigned.emotionSignature,emotionRaw,emotionSigned.emotionBlockHeight,emotionOrderId);
+ // Emotion ambiguous delivery remains SUBMITTED; reconciliation prevents duplicate sells.
+ try{await jito('sendBundle',[[emotionRaw],{encoding:'base64'}]);}catch{await connection().sendRawTransaction(emotionSigned.emotionRaw,{skipPreflight:false,maxRetries:0});}
+ return emotionSigned.emotionSignature;
+}
+export async function submitOrder(emotionOrderId:string,emotionInstructions:TransactionInstruction[],emotionTip?:bigint){
+ const emotionOrder=db.prepare('SELECT active_positions.cortisol_score FROM execution_orders JOIN active_positions USING(position_id) WHERE order_id=?').get(emotionOrderId) as {cortisol_score:number};
+ return emotionSubmitSigned(emotionOrderId,await emotionPrepareSigned(emotionInstructions,emotionTip??convictionTip(emotionOrder.cortisol_score)));
 }

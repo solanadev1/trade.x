@@ -13,7 +13,7 @@ export function decodeTradeLogs(logs: string[], signature: string): Trade[] {
   const b=Buffer.from(line.slice(14),'base64');if(b.length<97||!b.subarray(0,8).equals(discriminator)||b[56]>1)continue;
   const sol=Number(b.readBigUInt64LE(40))/1e9,tokens=Number(b.readBigUInt64LE(48))/1e6;
   if(!tokens||!sol)continue;
-  result.push({...(b.length>=129?{virtualSolRaw:b.readBigUInt64LE(97).toString(),virtualTokenRaw:b.readBigUInt64LE(105).toString(),realSolRaw:b.readBigUInt64LE(113).toString()}:{}),signature:`${signature}:${index}`,mint:new PublicKey(b.subarray(8,40)).toBase58(),wallet:new PublicKey(b.subarray(57,89)).toBase58(),buy:b[56]===1,sol,tokens,price:sol/tokens,timestamp:Number(b.readBigInt64LE(89))*1000});
+  result.push({...(b.length>=129?{virtualSolRaw:b.readBigUInt64LE(97).toString(),virtualTokenRaw:b.readBigUInt64LE(105).toString(),realSolRaw:b.readBigUInt64LE(113).toString(),emotionRealTokenRaw:b.readBigUInt64LE(121).toString()}:{}),signature:`${signature}:${index}`,mint:new PublicKey(b.subarray(8,40)).toBase58(),wallet:new PublicKey(b.subarray(57,89)).toBase58(),buy:b[56]===1,sol,tokens,price:sol/tokens,timestamp:Number(b.readBigInt64LE(89))*1000});
  }return result;
 }
 export async function historicalTrades(address:string,since=0,until=Date.now(),ammMint?:string):Promise<Trade[]>{

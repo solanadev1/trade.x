@@ -47,3 +47,26 @@ export function emotionEvAllocation(emotionBankroll:number,emotionScore:number,e
  const emotionTip=BigInt(Math.floor(Math.min(emotionCeiling,emotionDesired)*1e9));
  return {...emotionAllocation,emotionEv,emotionAdjusted,emotionTip:emotionAllocation.sol>0&&emotionTip>=1000n?emotionTip:0n,sol:emotionTip>=1000n?emotionAllocation.sol:0};
 }
+
+import {roundTripQuote as emotionRoundTripQuote,type Curve as EmotionCurve} from './pumpDecoder';
+export function emotionCostAdjustedKelly(emotionBankroll:number,emotionScore:number,emotionHistory:KellyHistory,emotionSharkRatio:number,emotionZEdge:number,emotionCurve:EmotionCurve,emotionFailureSol=0,emotionMultiplier=.25){
+ const emotionBase=emotionEvAllocation(emotionBankroll,emotionScore,emotionHistory,emotionSharkRatio,emotionZEdge,emotionMultiplier);
+ const emotionEmpty={...emotionBase,sol:0,emotionTip:0n,emotionCostRate:0,emotionNetWin:0,emotionNetLoss:0,emotionEv:0};
+ if(emotionBase.sol<=0||!Number.isFinite(emotionFailureSol)||emotionFailureSol<0||emotionCurve.complete)return emotionEmpty;
+ let emotionBest=emotionEmpty;
+ // Emotion search recomputes reserve impact and fixed costs at each candidate before accepting its Kelly bound.
+ for(let emotionStep=1;emotionStep<=80;emotionStep++){
+ const emotionSol=Math.floor(emotionBase.sol*emotionStep/80*1e9)/1e9;if(emotionSol<.05)continue;
+ const emotionTip=BigInt(Math.floor(Math.min(Number(emotionBase.emotionTip),emotionSol*.01*1e9)));
+ if(emotionTip<1000n)continue;
+ try{const emotionBudget=BigInt(Math.floor(emotionSol*1e9));const emotionQuote=emotionRoundTripQuote(emotionCurve,emotionBudget,125,emotionTip+35000n);
+ const emotionCostRate=(Number(emotionQuote.cost-emotionQuote.proceeds)/1e9+emotionFailureSol+.00203928)/emotionSol;
+ const emotionNetWin=.15*emotionHistory.payoffRatio-emotionCostRate,emotionNetLoss=.15+emotionCostRate;
+ const emotionEv=emotionBase.pConv*emotionNetWin-(1-emotionBase.pConv)*emotionNetLoss;
+ if(emotionNetWin<=0||emotionEv<=0)continue;
+ const emotionF=emotionBase.pConv-(1-emotionBase.pConv)/(emotionNetWin/emotionNetLoss);
+ if(emotionSol>emotionBankroll*Math.min(.08,Math.max(0,emotionF*emotionMultiplier))+1e-12)continue;
+ emotionBest={...emotionBase,sol:emotionSol,fraction:emotionSol/emotionBankroll,fStar:emotionF,emotionTip,emotionCostRate,emotionNetWin,emotionNetLoss,emotionEv};
+ }catch{continue;}}
+ return emotionBest;
+}
