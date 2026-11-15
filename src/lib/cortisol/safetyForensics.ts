@@ -15,3 +15,42 @@ export function safetyForensics(e:ForensicEvidence,minDecay=55):ForensicResult{
  if(decayPct<minDecay||[...eligible.values()].filter(sol=>sol>=.4).length<2)return fail('EXHAUSTION','Sell pressure or fresh buyer confirmation insufficient');
  return fail('PASS','Ownership, funding and exhaustion checks passed');
 }
+
+export type EmotionClusterWallet = {
+  emotionWallet: string; emotionFresh: boolean; emotionParent: string | null;
+  emotionFundingSol: number | null; emotionEntryMs: number | null;
+  emotionBuySol: number; emotionSellSol: number; emotionObservedMs: number;
+};
+export function emotionClusterForensics(emotionWallets: EmotionClusterWallet[]) {
+  const emotionCandidates = emotionWallets.filter(emotionWallet => emotionWallet.emotionFresh && emotionWallet.emotionBuySol > 0);
+  const emotionVisited = new Set<string>();
+  const emotionClusters: { emotionWallets: string[]; emotionSignal: string; emotionWashFraction: number }[] = [];
+  for (const emotionSeed of emotionCandidates) {
+    if (emotionVisited.has(emotionSeed.emotionWallet)) continue;
+    const emotionGroup = [emotionSeed]; emotionVisited.add(emotionSeed.emotionWallet);
+    for (let emotionIndex = 0; emotionIndex < emotionGroup.length; emotionIndex++) {
+      for (const emotionOther of emotionCandidates) {
+        if (emotionVisited.has(emotionOther.emotionWallet)) continue;
+        const emotionCurrent = emotionGroup[emotionIndex];
+        const emotionSameParent = !!emotionCurrent.emotionParent && emotionCurrent.emotionParent === emotionOther.emotionParent;
+        const emotionSimilarFunding = emotionCurrent.emotionFundingSol !== null && emotionOther.emotionFundingSol !== null &&
+          emotionCurrent.emotionFundingSol > 0 && Math.abs(emotionCurrent.emotionFundingSol - emotionOther.emotionFundingSol) / emotionCurrent.emotionFundingSol <= .1;
+        const emotionSynchronized = emotionCurrent.emotionEntryMs !== null && emotionOther.emotionEntryMs !== null &&
+          Math.abs(emotionCurrent.emotionEntryMs - emotionOther.emotionEntryMs) <= 400;
+        if (emotionSameParent || emotionSimilarFunding || emotionSynchronized) {
+          emotionGroup.push(emotionOther); emotionVisited.add(emotionOther.emotionWallet);
+        }
+      }
+    }
+    if (emotionGroup.length < 2) continue;
+    const emotionBuy = emotionGroup.reduce((emotionSum, emotionWallet) => emotionSum + emotionWallet.emotionBuySol, 0);
+    const emotionSell = emotionGroup.reduce((emotionSum, emotionWallet) => emotionSum + emotionWallet.emotionSellSol, 0);
+    const emotionWash = emotionSell / emotionBuy;
+    emotionClusters.push({ emotionWallets: emotionGroup.map(emotionWallet => emotionWallet.emotionWallet), emotionWashFraction: emotionWash,
+      emotionSignal: emotionWash >= .8 ? 'Emotion Round-Trip Wash Candidate' :
+        emotionSell === 0 && emotionGroup.every(emotionWallet => emotionWallet.emotionObservedMs >= 60000) ?
+          'Emotion Stealth Whale Accumulation' : 'Emotion Cluster Observation Pending' });
+  }
+  return { emotionClusters, emotionStealthWhaleAccumulation: emotionClusters.some(emotionCluster => emotionCluster.emotionSignal === 'Emotion Stealth Whale Accumulation'),
+    emotionWashTrading: emotionClusters.some(emotionCluster => emotionCluster.emotionSignal === 'Emotion Round-Trip Wash Candidate'), emotionEvidenceOnly: true };
+}
